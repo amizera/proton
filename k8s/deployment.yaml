@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proton-manager
+  namespace: default
+  labels:
+    app: proton-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proton-manager
+  template:
+    metadata:
+      labels:
+        app: proton-manager
+    spec:
+      containers:
+        - name: proton-manager
+          # Use 'proton-manager:latest' if building locally, 
+          # or your registry path e.g. 'ghcr.io/user/proton:v1'
+          image: proton-manager:latest 
+          imagePullPolicy: Never # Important for local k3s images import
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proton-manager-svc
+  namespace: default
+spec:
+  selector:
+    app: proton-manager
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP
+---
+# Opcjonalnie Ingress (Traefik jest domyślny w K3s)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: proton-manager-ingress
+  namespace: default
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: proton-manager-svc
+                port:
+                  number: 80
