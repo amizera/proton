@@ -84,10 +84,9 @@ const parseSingleFileContent = (
       return;
     }
 
-    // Ignore if PPE is same as CoopID (phantom record)
-    if (metaRef.coopId && ppe === metaRef.coopId) {
-      return;
-    }
+    // NOTE: Previously we ignored ppe === metaRef.coopId here. 
+    // Since we now know there are separate files for the Cooperative (SEPN),
+    // we MUST process them just like any other PPE.
 
     ppeSet.add(ppe);
 
@@ -148,20 +147,6 @@ export const processEnergyFiles = async (
     if (processedCount % 5 === 0) {
       await new Promise(r => setTimeout(r, 0)); 
     }
-  }
-
-  // Final Cleanup: Ensure the detected CoopId is NOT in the PPE list or records
-  // This handles cases where CoopId was detected in one file but treated as PPE in another before detection
-  if (metaRef.coopId) {
-    if (ppeSet.has(metaRef.coopId)) {
-      ppeSet.delete(metaRef.coopId);
-    }
-    // Remove phantom records
-    Object.keys(tempMap).forEach(key => {
-      if (tempMap[key]!.ppe === metaRef.coopId) {
-        delete tempMap[key];
-      }
-    });
   }
 
   // Convert map to array and sort

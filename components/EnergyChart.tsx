@@ -26,18 +26,23 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ data }) => {
     );
   }
 
-  // To allow for better visualization if multiple days are selected, we might want to slice 
-  // or allow zooming, but for now we render all sequential data points.
-  // We construct a label that is readable.
+  // Check unique dates to determine title
+  const uniqueDates = Array.from(new Set(data.map(d => d.date)));
+  const isSingleDay = uniqueDates.length === 1;
+  const title = isSingleDay 
+    ? `Profil Energetyczny - Dzień: ${uniqueDates[0]}` 
+    : `Profil Energetyczny - Zakres (${uniqueDates.length} dni)`;
+
+  // Construct readable labels
   const formattedData = data.map(d => ({
     ...d,
-    label: `${d.date.substring(5)} H${d.hour}`, // MM-DD H1
+    label: isSingleDay ? `${d.hour}:00` : `${d.date.substring(5)} H${d.hour}`, // Just hour if single day, else MM-DD H
     fullLabel: `${d.date} Godz: ${d.hour}`
   }));
 
   return (
     <div className="h-[400px] w-full rounded-lg bg-white p-4 shadow-sm ring-1 ring-slate-200">
-      <h3 className="mb-4 text-sm font-semibold text-slate-700">Profil Energetyczny (Pobór vs Oddanie vs Bilans)</h3>
+      <h3 className="mb-4 text-sm font-semibold text-slate-700">{title}</h3>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart
           data={formattedData}
@@ -52,8 +57,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ data }) => {
           <XAxis 
             dataKey="label" 
             tick={{ fontSize: 10, fill: '#64748b' }} 
-            interval="preserveStartEnd" 
-            minTickGap={30}
+            interval={isSingleDay ? 2 : 'preserveStartEnd'} // Show more ticks on single day
+            minTickGap={20}
           />
           <YAxis 
             tick={{ fontSize: 10, fill: '#64748b' }} 
@@ -67,15 +72,15 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ data }) => {
           <Legend wrapperStyle={{ paddingTop: '10px' }}/>
           <ReferenceLine y={0} stroke="#000" />
           
-          <Bar dataKey="cp" name="Pobrana (CP)" fill="#ef4444" barSize={20} radius={[4, 4, 0, 0]} opacity={0.8} />
-          <Bar dataKey="co" name="Oddana (CO)" fill="#22c55e" barSize={20} radius={[4, 4, 0, 0]} opacity={0.8} />
+          <Bar dataKey="cp" name="Pobrana (CP)" fill="#ef4444" barSize={isSingleDay ? 12 : undefined} radius={[4, 4, 0, 0]} opacity={0.8} />
+          <Bar dataKey="co" name="Oddana (CO)" fill="#22c55e" barSize={isSingleDay ? 12 : undefined} radius={[4, 4, 0, 0]} opacity={0.8} />
           <Line 
             type="monotone" 
             dataKey="cb" 
             name="Zbilansowana (CB)" 
             stroke="#3b82f6" 
             strokeWidth={2} 
-            dot={false}
+            dot={isSingleDay} // Show dots only on single day view for better detail
           />
         </ComposedChart>
       </ResponsiveContainer>

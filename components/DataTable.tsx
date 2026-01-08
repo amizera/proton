@@ -12,15 +12,26 @@ const DataTable: React.FC<DataTableProps> = ({ data, isAggregate = false }) => {
 
   if (tableData.length === 0) return null;
 
+  // Determine context for subtitle
+  const uniqueDates = Array.from(new Set(data.map(d => d.date)));
+  const dateInfo = uniqueDates.length === 1 
+    ? `Dzień: ${uniqueDates[0]}` 
+    : `Zakres: ${uniqueDates.length} dni`;
+
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
-        <h3 className="text-sm font-semibold text-slate-800">Dane Energetyczne (Tabela)</h3>
-        <p className="text-xs text-slate-500">
-          {isAggregate 
-            ? "Poniższe dane są sumą wartości ze wszystkich liczników dla danej godziny."
-            : "Szczegółowe dane pomiarowe dla wybranego licznika."}
-        </p>
+      <div className="border-b border-slate-200 bg-slate-50 px-6 py-4 flex justify-between items-center">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">Dane Energetyczne (Tabela)</h3>
+          <p className="text-xs text-slate-500">
+            {isAggregate 
+              ? "Suma wartości ze wszystkich liczników."
+              : "Szczegółowe dane pomiarowe."}
+          </p>
+        </div>
+        <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-medium text-slate-600">
+          {dateInfo}
+        </span>
       </div>
       <div className="max-h-[500px] overflow-auto">
         <table className="w-full text-left text-sm text-slate-600">
