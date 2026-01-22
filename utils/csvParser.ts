@@ -34,8 +34,9 @@ const readFileAsText = (file: File): Promise<string> => {
 
 /**
  * Parses a single file content string.
+ * EXPORTED for external use (e.g. loading from API)
  */
-const parseSingleFileContent = (
+export const parseSingleFileContent = (
   content: string, 
   tempMap: Record<string, Partial<EnergyDbRecord>>,
   ppeSet: Set<string>,
@@ -84,10 +85,6 @@ const parseSingleFileContent = (
       return;
     }
 
-    // NOTE: Previously we ignored ppe === metaRef.coopId here. 
-    // Since we now know there are separate files for the Cooperative (SEPN),
-    // we MUST process them just like any other PPE.
-
     ppeSet.add(ppe);
 
     // Hours 1 to 24 at indices 3 to 26
@@ -118,7 +115,49 @@ const parseSingleFileContent = (
 };
 
 /**
+ * Helper to process a list of string contents (from API)
+ */
+export const processStringContents = (
+  contents: string[]
+): ParseResult => {
+  const tempMap: Record<string, Partial<EnergyDbRecord>> = {};
+  const ppeSet = new Set<string>();
+  const metaRef: { coopId: string | undefined } = { coopId: undefined };
+  
+  contents.forEach(content => {
+    try {
+      parseSingleFileContent(content, tempMap, ppeSet, metaRef);
+    } catch (e) {
+      console.error("Error parsing content string", e);
+    }
+  });
+
+  const sortedRecords = Object.values(tempMap)
+    .map(r => r as EnergyDbRecord)
+    .sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return a.hour - b.hour;
+    });
+
+  const summary = {
+    totalImport: sortedRecords.reduce((sum, r) => sum + r.cp, 0),
+    totalExport: sortedRecords.reduce((sum, r) => sum + r.co, 0),
+    daysCount: new Set(sortedRecords.map(r => r.date)).size,
+    coopId: metaRef.coopId
+  };
+
+  return {
+    records: sortedRecords,
+    uniquePPEs: Array.from(ppeSet).sort(),
+    summary,
+    errors: []
+  };
+};
+
+
+/**
  * Main function to process a batch of File objects.
+ * (Retained for legacy direct upload if needed, but updated to use shared logic)
  */
 export const processEnergyFiles = async (
   files: File[], 
@@ -131,7 +170,6 @@ export const processEnergyFiles = async (
   const metaRef: { coopId: string | undefined } = { coopId: undefined };
   let processedCount = 0;
 
-  // Process files sequentially or in small chunks
   for (const file of files) {
     try {
       const content = await readFileAsText(file);
@@ -143,13 +181,11 @@ export const processEnergyFiles = async (
     processedCount++;
     if (onProgress) onProgress(processedCount);
     
-    // Tiny yield to let UI update progress bar
     if (processedCount % 5 === 0) {
       await new Promise(r => setTimeout(r, 0)); 
     }
   }
 
-  // Convert map to array and sort
   const sortedRecords = Object.values(tempMap)
     .map(r => r as EnergyDbRecord)
     .sort((a, b) => {

@@ -3,7 +3,9 @@ import { EnergyDbRecord, ParseResult } from './types';
 import FileUpload from './components/FileUpload';
 import EnergyChart from './components/EnergyChart';
 import DataTable from './components/DataTable';
-import { Zap, Activity, Database, LayoutDashboard, Filter, Building2, Calculator, Users, Calendar } from 'lucide-react';
+import { fetchAllFiles } from './utils/api';
+import { processStringContents } from './utils/csvParser';
+import { Zap, Activity, Database, LayoutDashboard, Filter, Building2, Calculator, Users, Calendar, RefreshCw, WifiOff } from 'lucide-react';
 
 interface Stats {
   totalImport: number;
@@ -21,6 +23,36 @@ const App: React.FC = () => {
   const [selectedPPE, setSelectedPPE] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>(DATE_ALL);
   const [stats, setStats] = useState<Stats>({ totalImport: 0, totalExport: 0, daysCount: 0 });
+  const [isLoading, setIsLoading] = useState(false);
+  const [serverError, setServerError] = useState(false);
+
+  // Function to load data from server
+  const loadDataFromServer = async () => {
+    setIsLoading(true);
+    setServerError(false);
+    try {
+      const apiFiles = await fetchAllFiles();
+      
+      // If array is empty, it might be just no files, or fetch failed (which returns [])
+      // We can't easily distinguish here without changing api signature, but for now we assume
+      // if fetchAllFiles logged an error, it returned [].
+      
+      const contents = apiFiles.map(f => f.content);
+      const result = processStringContents(contents);
+      
+      handleDataReady(result);
+    } catch (e) {
+      console.error("Failed to load data", e);
+      setServerError(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
+    loadDataFromServer();
+  }, []);
 
   const handleDataReady = (result: ParseResult) => {
     setData(result.records);
@@ -28,16 +60,15 @@ const App: React.FC = () => {
     setStats(result.summary);
     
     // Default selection logic:
-    // 1. If we found a CoopID and it exists in the data (files were uploaded), select it.
-    // 2. Otherwise default to aggregation.
-    if (result.summary.coopId && result.uniquePPEs.includes(result.summary.coopId)) {
-      setSelectedPPE(result.summary.coopId);
+    if (selectedPPE && (result.uniquePPEs.includes(selectedPPE) || selectedPPE === AGGREGATED_MEMBERS_KEY)) {
+      // Keep selection
     } else {
-      setSelectedPPE(AGGREGATED_MEMBERS_KEY);
+      if (result.summary.coopId && result.uniquePPEs.includes(result.summary.coopId)) {
+        setSelectedPPE(result.summary.coopId);
+      } else {
+        setSelectedPPE(AGGREGATED_MEMBERS_KEY);
+      }
     }
-
-    // Reset date filter when new data comes in
-    setSelectedDate(DATE_ALL);
   };
 
   // Logic to filter or aggregate data based on PPE selection
@@ -152,6 +183,26 @@ const App: React.FC = () => {
           {/* Left Column: Controls & Stats */}
           <div className="space-y-6 lg:col-span-4">
             
+            {/* Server Connection Warning */}
+            {isLoading ? (
+               <div className="mb-4 flex items-center justify-center rounded-lg border border-indigo-200 bg-indigo-50 p-4 text-indigo-700">
+                 <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
+                 <span className="text-sm font-medium">Łączenie z serwerem...</span>
+               </div>
+            ) : data.length === 0 && (
+               <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+                  <div className="flex items-start">
+                    <WifiOff className="mr-2 h-5 w-5 text-yellow-600 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-yellow-800">Brak połączenia lub danych</h4>
+                      <p className="mt-1 text-xs text-yellow-700">
+                        Nie udało się pobrać plików z serwera. Upewnij się, że backend jest uruchomiony (<code>npm run server</code>) lub wgraj pliki ręcznie poniżej.
+                      </p>
+                    </div>
+                  </div>
+               </div>
+            )}
+
             {/* Stats Cards */}
             <div className="grid grid-cols-2 gap-4">
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -179,89 +230,95 @@ const App: React.FC = () => {
             </div>
 
             {/* Upload Area */}
-            <FileUpload onDataReady={handleDataReady} />
+            <FileUpload onUploadComplete={loadDataFromServer} />
 
             {/* Filter Section */}
-            {uniquePPEs.length > 0 && (
+            {(uniquePPEs.length > 0) && (
               <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-4">
                 
-                {/* PPE Selector */}
-                <div>
-                  <label className="mb-2 flex items-center text-sm font-semibold text-slate-700">
-                    <Filter className="mr-2 h-4 w-4" />
-                    Źródło Danych (PPE)
-                  </label>
-                  <select
-                    value={selectedPPE}
-                    onChange={(e) => setSelectedPPE(e.target.value)}
-                    className="block w-full rounded-md border-slate-300 bg-slate-50 p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:ring-indigo-500 shadow-sm border"
-                  >
-                    {/* Option 1: Main Coop File */}
-                    {stats.coopId && uniquePPEs.includes(stats.coopId) && (
-                      <option value={stats.coopId} className="font-bold text-indigo-700">
-                        🏢 Dane Spółdzielni (Plik OSD: {stats.coopId})
-                      </option>
-                    )}
-                    
-                    {/* Option 2: Aggregation of Members */}
-                    <option value={AGGREGATED_MEMBERS_KEY} className="font-semibold text-slate-800">
-                      ∑ Suma Kontrolna Członków (Wyliczona)
-                    </option>
-                    
-                    <option disabled>──────────────</option>
-                    
-                    {/* Option 3: Individual Members */}
-                    {memberPPEs.map(ppe => (
-                      <option key={ppe} value={ppe}>👤 {ppe}</option>
-                    ))}
-                  </select>
-                </div>
+                {uniquePPEs.length > 0 && (
+                  <>
+                    {/* PPE Selector */}
+                    <div>
+                      <label className="mb-2 flex items-center text-sm font-semibold text-slate-700">
+                        <Filter className="mr-2 h-4 w-4" />
+                        Źródło Danych (PPE)
+                      </label>
+                      <select
+                        value={selectedPPE}
+                        onChange={(e) => setSelectedPPE(e.target.value)}
+                        className="block w-full rounded-md border-slate-300 bg-slate-50 p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:ring-indigo-500 shadow-sm border"
+                      >
+                        {/* Option 1: Main Coop File */}
+                        {stats.coopId && uniquePPEs.includes(stats.coopId) && (
+                          <option value={stats.coopId} className="font-bold text-indigo-700">
+                            🏢 Dane Spółdzielni (Plik OSD: {stats.coopId})
+                          </option>
+                        )}
+                        
+                        {/* Option 2: Aggregation of Members */}
+                        <option value={AGGREGATED_MEMBERS_KEY} className="font-semibold text-slate-800">
+                          ∑ Suma Kontrolna Członków (Wyliczona)
+                        </option>
+                        
+                        <option disabled>──────────────</option>
+                        
+                        {/* Option 3: Individual Members */}
+                        {memberPPEs.map(ppe => (
+                          <option key={ppe} value={ppe}>👤 {ppe}</option>
+                        ))}
+                      </select>
+                    </div>
 
-                {/* Date Selector */}
-                {availableDates.length > 0 && (
-                  <div>
-                    <label className="mb-2 flex items-center text-sm font-semibold text-slate-700">
-                      <Calendar className="mr-2 h-4 w-4" />
-                      Wybierz Datę
-                    </label>
-                    <select
-                      value={selectedDate}
-                      onChange={(e) => setSelectedDate(e.target.value)}
-                      className="block w-full rounded-md border-slate-300 bg-slate-50 p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:ring-indigo-500 shadow-sm border"
-                    >
-                      <option value={DATE_ALL}>📅 Wszystkie dostępne dni ({availableDates.length})</option>
-                      {availableDates.map(date => (
-                        <option key={date} value={date}>{date}</option>
-                      ))}
-                    </select>
-                  </div>
+                    {/* Date Selector */}
+                    {availableDates.length > 0 && (
+                      <div>
+                        <label className="mb-2 flex items-center text-sm font-semibold text-slate-700">
+                          <Calendar className="mr-2 h-4 w-4" />
+                          Wybierz Datę
+                        </label>
+                        <select
+                          value={selectedDate}
+                          onChange={(e) => setSelectedDate(e.target.value)}
+                          className="block w-full rounded-md border-slate-300 bg-slate-50 p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:ring-indigo-500 shadow-sm border"
+                        >
+                          <option value={DATE_ALL}>📅 Wszystkie dostępne dni ({availableDates.length})</option>
+                          {availableDates.map(date => (
+                            <option key={date} value={date}>{date}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* Contextual Help / Info Box */}
-                <div className="mt-4 rounded-md bg-slate-50 p-3 text-xs text-slate-600 border border-slate-100">
-                  {isCoopView ? (
-                    <div className="flex gap-2">
-                       <Building2 className="h-4 w-4 text-indigo-600 shrink-0" />
-                       <div>
-                         <strong>Tryb Oficjalny:</strong> Dane z licznika głównego spółdzielni.
-                       </div>
-                    </div>
-                  ) : isAggregatedView ? (
-                    <div className="flex gap-2">
-                      <Calculator className="h-4 w-4 text-orange-600 shrink-0" />
-                      <div>
-                        <strong>Tryb Kontrolny:</strong> Suma matematyczna liczników członków.
+                {uniquePPEs.length > 0 && (
+                  <div className="mt-4 rounded-md bg-slate-50 p-3 text-xs text-slate-600 border border-slate-100">
+                    {isCoopView ? (
+                      <div className="flex gap-2">
+                        <Building2 className="h-4 w-4 text-indigo-600 shrink-0" />
+                        <div>
+                          <strong>Tryb Oficjalny:</strong> Dane z licznika głównego spółdzielni.
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="flex gap-2">
-                       <Users className="h-4 w-4 text-slate-500 shrink-0" />
-                       <div>
-                         Dane pojedynczego członka.
-                       </div>
-                    </div>
-                  )}
-                </div>
+                    ) : isAggregatedView ? (
+                      <div className="flex gap-2">
+                        <Calculator className="h-4 w-4 text-orange-600 shrink-0" />
+                        <div>
+                          <strong>Tryb Kontrolny:</strong> Suma matematyczna liczników członków.
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Users className="h-4 w-4 text-slate-500 shrink-0" />
+                        <div>
+                          Dane pojedynczego członka.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -271,7 +328,7 @@ const App: React.FC = () => {
                 <div className="flex items-start">
                   <Activity className="mr-3 h-5 w-5 mt-0.5 text-indigo-600" />
                   <div>
-                    <h4 className="text-sm font-semibold text-indigo-900">Status Importu</h4>
+                    <h4 className="text-sm font-semibold text-indigo-900">Baza Danych</h4>
                     <p className="mt-1 text-xs text-indigo-700">
                       Rekordy (widoczne): <strong>{finalDisplayData.length}</strong><br/>
                       Wybrana data: <strong>{selectedDate === DATE_ALL ? 'Pełny zakres' : selectedDate}</strong>
