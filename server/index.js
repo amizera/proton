@@ -10,9 +10,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3001;
+const PORT = 3000;
 
 // Konfiguracja folderów
+// W Dockerze/K8s roboczym katalogiem jest /app
+// server/index.js jest w /app/server/index.js
+// Storage chcemy w /app/storage
 const STORAGE_DIR = path.join(__dirname, '..', 'storage');
 const MANIFEST_PATH = path.join(STORAGE_DIR, 'manifest.json');
 
@@ -24,6 +27,10 @@ if (!fs.existsSync(MANIFEST_PATH)) {
 
 app.use(cors());
 app.use(express.json());
+
+// Serwowanie plików statycznych frontendu (build)
+// Zakładamy, że pliki są w katalogu ../dist względem tego pliku
+app.use(express.static(path.join(__dirname, '..', 'dist')));
 
 // Konfiguracja Multer (pamięć tymczasowa, przetwarzamy bufor)
 const upload = multer({ storage: multer.memoryStorage() });
@@ -152,6 +159,11 @@ app.get('/api/files', async (req, res) => {
     // Jeśli manifest nie istnieje, zwróć pustą listę
     res.json([]);
   }
+});
+
+// Obsługa SPA - wszystkie inne trasy kierują do index.html
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
 });
 
 app.listen(PORT, () => {

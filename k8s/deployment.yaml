@@ -1,28 +1,28 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: proton-manager
-  namespace: default
+  name: proton
+  namespace: proton
   labels:
-    app: proton-manager
+    app: proton
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: proton-manager
+      app: proton
   template:
     metadata:
       labels:
-        app: proton-manager
+        app: proton
     spec:
       containers:
-        - name: proton-manager
-          # Use 'proton-manager:latest' if building locally, 
+        - name: proton
+          # Use 'proton:latest' if building locally, 
           # or your registry path e.g. 'ghcr.io/user/proton:v1'
-          image: proton-manager:latest 
-          imagePullPolicy: Never # Important for local k3s images import
+          image: "docker.io/g3n3zyp/proton:latest"
+          imagePullPolicy: Always # Important for local k3s images import
           ports:
-            - containerPort: 80
+            - containerPort: 3000
           resources:
             requests:
               memory: "64Mi"
@@ -30,35 +30,65 @@ spec:
             limits:
               memory: "128Mi"
               cpu: "200m"
+          volumeMounts:
+          - mountPath: /app/storage
+            name: proton-files
+      volumes:
+      - name: proton-files
+        persistentVolumeClaim:
+          claimName: proton-files
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: proton-files
+  namespace: proton
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 20Gi
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: proton-manager-svc
-  namespace: default
+  name: proton
+  namespace: proton
+  labels:
+    app: proton
+    component: service
 spec:
+  type: LoadBalancer
   selector:
-    app: proton-manager
+    app: proton
   ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 80
-  type: ClusterIP
----
-# Opcjonalnie Ingress (Traefik jest domyślny w K3s)
+  - protocol: TCP
+    name: http
+    port: 80
+    targetPort: 3000
+---    
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: proton-manager-ingress
-  namespace: default
+  name: ingress-proton
+  namespace: proton
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:
   rules:
-    - http:
+    - host: proton.48340.xyz
+      http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: proton-manager-svc
+                name: proton
                 port:
                   number: 80
+  tls:
+    - hosts:
+        - proton.48340.xyz
+      secretName: proton-http-tls
